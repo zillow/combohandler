@@ -1,4 +1,8 @@
 module.exports = {
+    // The "base" of all paths resolved by the web server.
+    // Used in resolving combined CSS url() resources.
+    basePath: '/local/path/to/webroot',
+
     // Mapping of URL paths to local filesystem paths. Each URL defined here will
     // become a combo handler for files under the specified local directory.
     //
