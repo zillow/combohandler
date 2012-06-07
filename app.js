@@ -1,35 +1,12 @@
 #!/usr/bin/env node
 
-/**
-Cluster initialization file for the site. See the Cluster docs at
-<http://learnboost.github.com/cluster/> for details about Cluster.
-**/
+// Cluster2 docs: http://ql-io.github.com/cluster2/
+var Cluster = require('cluster2');
 
-var cluster = require('cluster'),
-    server  = require('./lib/server');
+var c = new Cluster();
 
-cluster(server(require('./config')))
-    .set('title', 'combohandler')
-
-    .in('development')
-        .set('workers', 1)
-        .use(cluster.pidfiles())
-        .use(cluster.cli())
-        .use(cluster.logger('logs', 'debug'))
-        .use(cluster.reload([
-                'config.js',
-                'index.js',
-                'lib',
-            ], {
-                extensions: ['.js'],
-                interval  : 1000,
-                signal    : 'SIGQUIT'
-            }))
-        .use(cluster.debug())
-        .listen(8000)
-
-    .in('production')
-        .use(cluster.pidfiles())
-        .use(cluster.cli())
-        .use(cluster.logger('logs'))
-        .listen(8000);
+c.listen(function (cb) {
+    var server = require('./lib/server'),
+        config = require('./config');
+    cb(server(config));
+});
