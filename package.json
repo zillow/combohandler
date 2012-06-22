@@ -27,7 +27,6 @@
 
     "dependencies": {
         "cluster2": "git://github.com/zillow/cluster2.git#no-deps-monitor",
-        "ejs": "0.x",
         "express": ">=2.2.0 <3.0.0"
     },
 
