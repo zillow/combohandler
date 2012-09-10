@@ -26,7 +26,8 @@
     ],
 
     "optionalDependencies": {
-        "express": "3.x"
+        "express": "3.x",
+        "mkdirp": "*"
     },
 
     "devDependencies": {
