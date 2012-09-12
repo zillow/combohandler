@@ -17,7 +17,12 @@ if (cluster.isMaster) {
     if (args.length) {
         switch (args[0]) {
         case 'stop':
-            sendSignalToMaster('SIGKILL');
+            // must clean up worker pidfiles before sending SIGKILL,
+            // because SIGKILL listeners basically can't do anything
+            removeWorkerPidFiles(function () {
+                console.error('combohandler master ' + process.pid + ' stopping abruptly...');
+                sendSignalToMaster('SIGKILL');
+            });
             break;
         case 'shutdown':
             sendSignalToMaster('SIGTERM');
@@ -39,7 +44,7 @@ if (cluster.isMaster) {
             require('mkdirp').sync(runDir);
         }
 
-        writePidFile(process.pid);
+        writePidFile('master', process.pid);
 
         process.on('SIGINT',  onSignal.bind(cluster, 'SIGINT' ));
         process.on('SIGKILL', onSignal.bind(cluster, 'SIGKILL'));
@@ -58,6 +63,7 @@ if (cluster.isMaster) {
 
             // this doesn't work in OS X, but whatever
             worker.process.title = 'combohandler worker';
+            writePidFile('worker' + worker.id, worker.process.pid);
         });
 
         cluster.on('exit', function (worker, code, signal) {
@@ -77,6 +83,7 @@ if (cluster.isMaster) {
 
             if (worker.suicide) {
                 console.log('Worker ' + worker.id + ' exited cleanly.');
+                removePidFile('worker' + worker.id);
             } else {
                 console.warn('Worker ' + worker.id + ' died, respawning!');
                 cluster.fork();
@@ -98,60 +105,113 @@ else {
 
 // Utilities ----------------------------------------------------------------
 
-// Simple function to call a function on each worker
-function eachWorker(cb) {
-    // Go through all workers
-    for (var id in cluster.workers) {
-        if (cluster.workers.hasOwnProperty(id)) {
-            cb(cluster.workers[id]);
-        }
-    }
-}
-
-
-// Manage master process combohandler.pid file
+// Manage combohandler process master and worker pidfiles
 // https://github.com/LearnBoost/cluster/blob/master/lib/plugins/pidfiles.js
-function getPidFilePath() {
-    return path.join(runDir, 'combohandler.pid');
+function getPidFilePath(name) {
+    return path.join(runDir, (name || 'master') + '.pid');
 }
 
-function getPidSync() {
-    return parseInt(fs.readFileSync(getPidFilePath()), 10);
+function getPidSync(name) {
+    return parseInt(fs.readFileSync(getPidFilePath(name)), 10);
 }
 
-function getPid(cb) {
-    fs.readFile(getPidFilePath(), function (err, data) {
-        if (data) {
-            data = parseInt(data, 10);
+function getMasterPid(cb) {
+    fs.readFile(getPidFilePath('master'), function (err, pid) {
+        if (pid) {
+            pid = parseInt(pid, 10);
         }
         if (cb) {
-            cb(err, data);
+            cb(err, pid);
         }
     });
 }
 
-function writePidFile(pid) {
-    fs.writeFile(getPidFilePath(), pid.toString(), function (err) {
+function getWorkerPidFilesSync() {
+    return fs.readdirSync(runDir).filter(function (file) {
+        return file.match(/^worker.*\.pid$/);
+    });
+}
+
+function getWorkerPidsSync() {
+    return getWorkerPidFilesSync().map(function (file) {
+        return parseInt(fs.readFileSync(runDir + '/' + file), 10);
+    });
+}
+
+function writePidFile(name, pid) {
+    fs.writeFile(getPidFilePath(name), pid.toString(), function (err) {
         if (err) { throw err; }
     });
 }
 
-function removePidFile() {
-    fs.unlink(getPidFilePath(), function (err) {
-        if (err) { throw err; }
+function removePidFile(name, cb) {
+    fs.unlink(getPidFilePath(name), function (err) {
+        if (cb) {
+            cb(err);
+        }
+        else if (err) {
+            if ('ENOENT' === err.code) {
+                console.error('Could not find pidfile: ' + err.msg);
+            }
+            else {
+                throw err;
+            }
+        }
     });
 }
+
+function removePidFileSync(name) {
+    fs.unlinkSync(getPidFilePath(name));
+}
+
+function removeWorkerPidFiles(cb) {
+    var workerPidFiles = getWorkerPidFilesSync(),
+        remaining = workerPidFiles.length;
+
+    workerPidFiles.forEach(function (file) {
+        removePidFile(file.replace(/\.pid$/, ''), function (err) {
+            if (err) {
+                if ('ENOENT' === err.code) {
+                    console.error('Could not find worker pidfile: ' + file);
+                }
+                else {
+                    throw err;
+                }
+            }
+            if (--remaining === 0 && cb) {
+                cb();
+            }
+        });
+    });
+}
+
 
 
 function sendSignalToMaster(signal) {
-    getPid(function (err, pid) {
+    getMasterPid(function (err, masterPid) {
         if (err) {
-            console.error(err);
+            console.error("Error sending signal " + signal + " to combohandler master process");
+            throw err;
         } else {
-            process.kill(pid, signal);
+            try {
+                // again, because SIGKILL is so incredibly rude,
+                // he doesn't allow us to do anything afterward
+                if ('SIGKILL' === signal) {
+                    removePidFileSync('master');
+                }
+                // send signal to master process, not necessarily "killing" it
+                process.kill(masterPid, signal);
+            }
+            catch (ex) {
+                if ('ESRCH' === ex.code) {
+                    console.error('combohandler not running');
+                }
+                else {
+                    throw ex;
+                }
+            }
         }
     });
-    // process.kill(getPidSync(), signal);
 }
 
 // Process Signal Events
