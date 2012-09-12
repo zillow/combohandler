@@ -19,6 +19,9 @@ if (cluster.isMaster) {
         case 'restart':
             sendSignalToMaster('SIGUSR2');
             break;
+        case 'status':
+            outputWorkerStatus();
+            break;
         case 'stop':
             // must clean up worker pidfiles before sending SIGKILL,
             // because SIGKILL listeners basically can't do anything
@@ -188,6 +191,54 @@ function removeWorkerPidFiles(cb) {
     });
 }
 
+
+function logStatus(name, pid, status, color) {
+    console.log('%s\033[90m %d\033[0m \033[' + color + 'm%s\033[0m', name, pid, status);
+}
+
+function checkStatus(prefix, pid, suffix) {
+    // increment zero-based forEach index to match one-based worker.id
+    if (typeof suffix === 'number') {
+        suffix += 1;
+    }
+
+    var name = prefix + suffix,
+        status = 'alive',
+        color = '36';
+
+    try {
+        process.kill(pid, 0);
+    }
+    catch (err) {
+        if ('ESRCH' === err.code) {
+            status = 'dead';
+            color = '31';
+        }
+        else {
+            throw err;
+        }
+    }
+
+    logStatus(name, pid, status, color);
+}
+
+function outputWorkerStatus() {
+    getMasterPid(function (err, masterPid) {
+        if (err) {
+            if ('ENOENT' === err.code) {
+                console.error('combohandler master not running!');
+                process.exit(1);
+            }
+            else {
+                throw err;
+            }
+        }
+
+        checkStatus('master', masterPid, '');
+
+        getWorkerPidsSync().forEach(checkStatus.bind({}, 'worker'));
+    });
+}
 
 
 function sendSignalToMaster(signal) {
