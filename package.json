@@ -25,10 +25,13 @@
         "npm >=1.0.0"
     ],
 
-    "optionalDependencies": {
-        "express": "3.x",
+    "dependencies": {
         "mkdirp": "*",
         "nopt": "2.x"
+    },
+
+    "optionalDependencies": {
+        "express": "3.x"
     },
 
     "devDependencies": {
