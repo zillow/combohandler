@@ -39,6 +39,8 @@
 
     "main": "index.js",
 
+    "bin": "./lib/cli.js",
+
     "directories": {"lib": "./lib"},
 
     "scripts": {
