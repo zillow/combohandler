@@ -16,6 +16,9 @@ if (cluster.isMaster) {
     // https://github.com/LearnBoost/cluster/blob/master/lib/plugins/cli.js
     if (args.length) {
         switch (args[0]) {
+        case 'restart':
+            sendSignalToMaster('SIGUSR2');
+            break;
         case 'stop':
             // must clean up worker pidfiles before sending SIGKILL,
             // because SIGKILL listeners basically can't do anything
