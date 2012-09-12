@@ -27,7 +27,8 @@
 
     "optionalDependencies": {
         "express": "3.x",
-        "mkdirp": "*"
+        "mkdirp": "*",
+        "nopt": "2.x"
     },
 
     "devDependencies": {
