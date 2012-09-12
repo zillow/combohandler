@@ -46,10 +46,9 @@ if (cluster.isMaster) {
 
         writePidFile('master', process.pid);
 
-        process.on('SIGINT',  onSignal.bind(cluster, 'SIGINT' ));
-        process.on('SIGKILL', onSignal.bind(cluster, 'SIGKILL'));
-        process.on('SIGTERM', onSignal.bind(cluster, 'SIGTERM'));
-        process.on('SIGUSR2', onSignal.bind(cluster, 'SIGUSR2'));
+        process.on('SIGINT',  gracefulShutdown);
+        process.on('SIGTERM', gracefulShutdown);
+        process.on('SIGUSR2', restartWorkers);
 
         cluster.on('fork', function (worker) {
             timeouts[worker.id] = setTimeout(function () {
@@ -74,6 +73,7 @@ if (cluster.isMaster) {
             }
 
             if (code) {
+                // oddly, SIGINT will pass exitCode=1 here, but suicide=true
                 console.error('Worker ' + worker.id + ' exited with code ' + code);
                 if (++flameouts > 20) {
                     console.error("Too many errors during startup, bailing!");
@@ -214,26 +214,23 @@ function sendSignalToMaster(signal) {
     });
 }
 
-// Process Signal Events
+// Signal Event Handlers
 // http://nodejs.org/api/process.html#process_signal_events
-function onSignal(signal) {
-    // http://en.wikipedia.org/wiki/Unix_signal#List_of_signals
-    switch (signal) {
-    case 'SIGINT' : // graceful (ctrl+C)
-        cluster.disconnect(removePidFile);
-        break;
-    case 'SIGKILL': // brutal
-        removePidFile();
-        cluster.destroy();
-        break;
-    case 'SIGTERM': // graceful
-        cluster.disconnect(removePidFile);
-        break;
-    case 'SIGUSR2': // reload config, rotate logs
-        console.log('combohandler master ' + process.pid + ' received SIGUSR2');
-        eachWorker(function (worker) {
-            process.kill(worker.process.pid, 'SIGUSR2');
-        });
-        break;
+// http://en.wikipedia.org/wiki/Unix_signal#List_of_signals
+
+// SIGINT   (Ctrl+C)
+// SIGTERM  (default signal from `kill`)
+function gracefulShutdown() {
+    console.log('combohandler master ' + process.pid + ' shutting down...');
+    cluster.disconnect(removePidFile);
+}
+
+// SIGUSR2
+function restartWorkers() {
+    console.log('combohandler master ' + process.pid + ' restarting workers...');
+    for (var id in cluster.workers) {
+        if (cluster.workers.hasOwnProperty(id)) {
+            process.kill(cluster.workers[id].process.pid, 'SIGUSR2');
+        }
     }
 }
