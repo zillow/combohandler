@@ -56,7 +56,7 @@ routes:
 
 ```js
 var combo = require('combohandler');
-app.use(combo.combine({rootPath: '/local/path/to/files'}));
+app.use(combo({rootPath: '/local/path/to/files'}));
 ```
 
 Or as route middleware for a specific route:
