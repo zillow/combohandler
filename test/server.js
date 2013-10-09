@@ -1,4 +1,4 @@
-/*global describe, before, after, it */
+/*global describe, before, after, it, sinon */
 var fs = require('fs');
 var path = require('path');
 
@@ -11,9 +11,11 @@ var combo   = require('../'),
     PORT     = 8942,
     BASE_URL = 'http://localhost:' + PORT;
 
-process.env['NODE_ENV'] = 'test';
+process.env.NODE_ENV = 'test';
 
 describe('combohandler', function () {
+    /*jshint expr:true */
+
     var app, httpServer;
 
     before(function (done) {
@@ -91,7 +93,8 @@ describe('combohandler', function () {
                 res.should.have.status(200);
                 res.should.have.header('cache-control', 'public,max-age=31536000');
 
-                var expires = new Date(res.headers['expires']);
+                res.headers.should.have.property('expires');
+                var expires = new Date(res.headers.expires);
                 ((expires - Date.now()) / 1000).should.be.within(31535990, 31536000);
 
                 done();
@@ -114,7 +117,68 @@ describe('combohandler', function () {
                 res.should.have.status(200);
                 res.should.have.header('cache-control', 'public,max-age=0');
 
-                var expires = new Date(res.headers['expires']);
+                res.headers.should.have.property('expires');
+                var expires = new Date(res.headers.expires);
+                ((expires - Date.now()) / 1000).should.be.within(-5, 5);
+
+                done();
+            });
+        });
+    });
+
+    describe('config: errorMaxAge', function () {
+        before(function () {
+            function throwBadRequest(req, res, next) {
+                next(new combo.BadRequest('errorMaxAge'));
+            }
+
+            app.use('/error-max-age-null', throwBadRequest);
+            app.use('/error-max-age-null', combo.errorHandler({
+                errorMaxAge: null
+            }));
+
+            app.use('/error-max-age-0', throwBadRequest);
+            app.use('/error-max-age-0', combo.errorHandler({
+                errorMaxAge: 0
+            }));
+        });
+
+        it('should default to five minutes', function (done) {
+            request(BASE_URL + '/js?err.js', function (err, res, body) {
+                res.should.have.status(400);
+                res.should.have.header('cache-control', 'public,max-age=300');
+
+                res.headers.should.have.property('expires');
+                var expires = new Date(res.headers.expires);
+                ((expires - Date.now()) / 1000).should.be.within(290, 300);
+
+                done();
+            });
+        });
+
+        it('should set private Cache-Control and no-cache headers when errorMaxAge is null', function (done) {
+            request(BASE_URL + '/error-max-age-null?a.js', function (err, res, body) {
+                assert.ifError(err);
+                res.should.have.status(400);
+                res.should.have.header('cache-control', 'private,no-store');
+                res.should.have.header('pragma', 'no-cache');
+
+                res.headers.should.have.property('expires');
+                var expires = new Date(res.headers.expires).getTime();
+                expires.should.equal(new Date(0).getTime());
+
+                done();
+            });
+        });
+
+        it('should support an errorMaxAge of 0', function (done) {
+            request(BASE_URL + '/error-max-age-0?a.js', function (err, res, body) {
+                assert.ifError(err);
+                res.should.have.status(400);
+                res.should.have.header('cache-control', 'public,max-age=0');
+
+                res.headers.should.have.property('expires');
+                var expires = new Date(res.headers.expires);
                 ((expires - Date.now()) / 1000).should.be.within(-5, 5);
 
                 done();
