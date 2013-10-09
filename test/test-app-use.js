@@ -70,10 +70,10 @@ describe('app.use', function () {
             }));
         });
 
-        // TODO
-        describe.skip("/rewritten", function () {
-            it("should rewrite url()s", responseEquals('?rewritten/urls.css', {
-                body: '.a { color: green; }\n\n.b { color: green; }\n'
+        describe("/rewritten", function () {
+            it("should rewrite url()s", responseEquals('/rewritten?urls.css', {
+                body: fs.readFileSync(path.join(FIXTURES_DIR, 'rewrite/urls.tmpl'), 'utf-8')
+                            .replace(/__PATH__/g, '/rewritten/')
             }));
         });
     });
