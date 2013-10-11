@@ -24,6 +24,16 @@ describe('app.use', function () {
             showStack     : true
         }));
 
+        var errorCombo = combohandler({
+            rootPath: FIXTURES_DIR
+        });
+        errorCombo.callbacks.unshift(function (req, res, next) {
+            var poo = new Error('poo');
+            poo.stack = null; // silence irrelevant output
+            next(poo);
+        });
+        app.use('/error-use', errorCombo);
+
         // mounted paths
         app.use('/basic', combohandler({
             rootPath: path.join(FIXTURES_DIR, 'root')
@@ -97,6 +107,10 @@ describe('app.use', function () {
     });
 
     describe('errors', function () {
+        it("should be passed down middleware stack", responseEquals('/error-use?outside.js', {
+            code: 500,
+            body: "Error: poo"
+        }));
     });
 
     // Test Utilities
