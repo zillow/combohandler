@@ -44,6 +44,11 @@ describe('app.use', function () {
         // provide baseApp
         server({}, app);
 
+        // test backstop
+        app.use(function (req, res) {
+            res.send(202, 'passed');
+        });
+
         app.use(combohandler.errorHandler);
 
         httpServer = app.listen(PORT, done);
@@ -51,6 +56,19 @@ describe('app.use', function () {
 
     after(function (done) {
         httpServer.close(done);
+    });
+
+    it("should skip middleware when request is not a GET", function (done) {
+        request({
+            method: 'POST',
+            body: 'wut',
+            uri: BASE_URL + '/?js/a.js&js/b.js'
+        }, function (err, res, body) {
+            should.not.exist(err);
+            res.should.have.status(202);
+            body.should.equal('passed');
+            done();
+        });
     });
 
     describe("with unmounted path", function () {
@@ -79,18 +97,6 @@ describe('app.use', function () {
     });
 
     describe('errors', function () {
-        it("should return 405 (Method Not Allowed) when request is not a GET", function (done) {
-            request({
-                method: 'POST',
-                body: 'wut',
-                uri: BASE_URL + '/?js/a.js&js/b.js'
-            }, function (err, res, body) {
-                should.not.exist(err);
-                res.should.have.status(405);
-                body.should.equal('Only GET is supported from this resource.');
-                done();
-            });
-        });
     });
 
     // Test Utilities
