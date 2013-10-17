@@ -1,4 +1,4 @@
-/*global describe, before, after, it */
+/*global describe, before, after, it, sinon */
 var should = require('should');
 
 var fs = require('fs');
@@ -33,6 +33,10 @@ describe('app.use', function () {
             next(poo);
         });
         app.use('/error-use', errorCombo);
+
+        var errorThrows = combohandler({ rootPath: FIXTURES_DIR });
+        errorThrows.callbacks.unshift(function (req, res, next) { throw 'poo'; });
+        app.use('/error-thrown', errorThrows);
 
         // mounted paths
         app.use('/basic', combohandler({
@@ -110,6 +114,11 @@ describe('app.use', function () {
         it("should be passed down middleware stack", responseEquals('/error-use?outside.js', {
             code: 500,
             body: "Error: poo"
+        }));
+
+        it("should pass thrown errors to next middleware", responseEquals('/error-thrown?outside.js', {
+            code: 500,
+            body: "poo"
         }));
     });
 
