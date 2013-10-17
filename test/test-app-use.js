@@ -47,13 +47,13 @@ describe('app.use', function () {
             rootPath: path.resolve(FIXTURES_DIR, 'rewrite')
         }));
 
+        // avoid routes getting swallowed by unmounted use
+        app.use(app.router);
+
         // unmounted path (/)
         app.use(combohandler({
             rootPath: FIXTURES_DIR
         }));
-
-        // don't use router
-        // app.use(app.router);
 
         // provide baseApp
         server({}, app);
@@ -108,6 +108,21 @@ describe('app.use', function () {
                             .replace(/__PATH__/g, '/rewritten/')
             }));
         });
+    });
+
+    describe("with route", function () {
+        before(function () {
+            app.get("/simple-route", [
+                combohandler({ rootPath: FIXTURES_DIR }),
+                function (req, res) {
+                    res.send(204);
+                }
+            ]);
+        });
+        it("should pass to next middleware", responseEquals('/simple-route?outside.js', {
+            code: 204,
+            body: ""
+        }));
     });
 
     describe('errors', function () {
