@@ -587,8 +587,20 @@ describe('combohandler', function () {
                     combo.combine({ rootPath: FIXTURES_DIR + "/dynamic/:major/:minor" }),
                 combo.respond);
 
-                app.get("/:major/separated/by/:minor",
+                app.get("/:major/separated/route/:minor",
                     combo.combine({ rootPath: FIXTURES_DIR + "/:major/:minor/static" }),
+                combo.respond);
+
+                app.get("/:major/separated/path/:minor",
+                    combo.combine({ rootPath: FIXTURES_DIR + "/:major/decafbad/:minor" }),
+                combo.respond);
+
+                app.get('/doubled-in-rootpath/:major',
+                    combo.combine({ rootPath: FIXTURES_DIR + '/dynamic/:major/:major' }),
+                combo.respond);
+
+                app.get('/doubled-with-suffixes/:major',
+                    combo.combine({ rootPath: FIXTURES_DIR + '/dynamic/:major/static/:major' }),
                 combo.respond);
             });
 
@@ -608,8 +620,23 @@ describe('combohandler', function () {
             }));
 
             it("should resolve route that has separated parameters", assertResponds({
-                path: "/dynamic/separated/by/decafbad?c.js&d.js",
+                path: "/dynamic/separated/route/decafbad?c.js&d.js",
                 body: "c();\n\nd();\n"
+            }));
+
+            it("should resolve root path that has separated parameters", assertResponds({
+                path: "/dynamic/separated/path/static?c.js&d.js",
+                body: "c();\n\nd();\n"
+            }));
+
+            it("should resolve route that has identical parameters in root path", assertResponds({
+                path: "/doubled-in-rootpath/baddecaf?e.js&f.js",
+                body: "e();\n\nf();\n"
+            }));
+
+            it("should resolve route that has separated identical parameters in root path", assertResponds({
+                path: "/doubled-with-suffixes/cafebabe?g.js&h.js",
+                body: "g();\n\nh();\n"
             }));
         });
     });
@@ -647,6 +674,42 @@ describe('combohandler', function () {
         ].join('\n');
         var SIMPLE_RAW = SIMPLE_IMPORTS_RAW + SIMPLE_URLS_RAW;
 
+        function dynamicFiletree(opts) {
+            var expectedRelativePath = opts.relativePath || "js/a.js";
+            var expectedResolvedPath = path.join(COMPLEX_ROOT, opts.realPath, expectedRelativePath);
+            var expectedRootPath     = path.join(COMPLEX_ROOT, opts.rootPath);
+
+            return function (req, res, next) {
+                var rootPath = res.locals.rootPath;
+                rootPath.should.equal(expectedRootPath);
+
+                var relativePath = res.locals.relativePaths[0];
+                relativePath.should.equal(expectedRelativePath);
+
+                fs.realpath(path.join(rootPath, relativePath), function (err, resolved) {
+                    assert.ifError(err);
+                    resolved.should.equal(expectedResolvedPath);
+                    next();
+                });
+            };
+        }
+
+        function dynamicSymlinks(opts) {
+            var expectedTemplateFile = opts.template || TEMPLATE_SIMPLE;
+            var expectedRelativePath = opts.relativePath || "css/urls/simple.css";
+            var expectedResolvedBody = expectedTemplateFile.replace(/__ROOT__/g, opts.rootPath);
+
+            return function (req, res, next) {
+                var relativePath = res.locals.relativePaths[0];
+                relativePath.should.equal(expectedRelativePath);
+
+                // console.error(res.body);
+                res.body.should.equal(expectedResolvedBody);
+
+                next();
+            };
+        }
+
         describe("route with fully-qualified dynamic path", function () {
             before(function () {
                 var combined = combo.combine({
@@ -654,40 +717,21 @@ describe('combohandler', function () {
                     rootPath: COMPLEX_ROOT + '/versioned/:version/base/'
                 });
 
-                app.get("/c/:version/fs-fq", combined, function (req, res, next) {
-                    var rootPath = res.locals.rootPath;
-                    rootPath.should.equal(path.join(COMPLEX_ROOT, '/versioned/deeper/base/'));
-                    next();
-                }, combo.respond);
+                app.get("/c/:version/fs-fq", combined, dynamicFiletree({
+                    realPath: "/versioned/deeper/base/",
+                    rootPath: "/versioned/deeper/base/"
+                }), combo.respond);
 
-                app.get("/c/:version/ln-fq", combined, function (req, res, next) {
-                    var rootPath = res.locals.rootPath;
-                    rootPath.should.equal(path.join(COMPLEX_ROOT, '/versioned/shallower/base/'));
+                app.get("/c/:version/ln-fq", combined, dynamicFiletree({
+                    realPath: "/base/",
+                    rootPath: "/versioned/shallower/base/"
+                }), combo.respond);
 
-                    var relativePath = res.locals.relativePaths[0];
-                    relativePath.should.equal('js/a.js');
-
-                    fs.realpath(path.join(rootPath, relativePath), function (err, resolved) {
-                        assert.ifError(err);
-                        resolved.should.equal(path.join(COMPLEX_ROOT, '/base/', relativePath));
-                        next();
-                    });
-                }, combo.respond);
-
-                app.get("/c/:version/fq-noimports", combined, function (req, res, next) {
-                    var rootPath = res.locals.rootPath;
-                    rootPath.should.equal(path.join(COMPLEX_ROOT, '/versioned/shallower/base/'));
-
-                    var relativePath = res.locals.relativePaths[0];
-                    relativePath.should.equal('css/urls/simple.css');
-
-                    // console.error(res.body);
-                    var expected = (SIMPLE_IMPORTS_RAW + TEMPLATE_URLS_SIMPLE)
-                                    .replace(/__ROOT__/g, '/versioned/shallower/base/');
-                    res.body.should.equal(expected);
-
-                    next();
-                }, combo.respond);
+                app.get("/c/:version/fq-noimports", combined, dynamicSymlinks({
+                    template: SIMPLE_IMPORTS_RAW + TEMPLATE_URLS_SIMPLE,
+                    realPath: "/versioned/shallower/base/",
+                    rootPath: "/versioned/shallower/base/"
+                }), combo.respond);
             });
 
             it("should read rootPath from filesystem directly", assertResponds({
@@ -705,91 +749,117 @@ describe('combohandler', function () {
 
         describe("route with one-sided dynamic path", function () {
             describe("and rootPath symlinked shallower", function () {
-                before(function () {
-                    var combined = combo.combine({
-                        rewriteImports: true,
-                        webRoot : COMPLEX_ROOT,
-                        rootPath: COMPLEX_ROOT + '/versioned/shallower/base/'
+                describe("when resolveSymlinks is true", function () {
+                    before(function () {
+                        var resolved = combo.combine({
+                            rewriteImports: true,
+                            webRoot : COMPLEX_ROOT,
+                            rootPath: COMPLEX_ROOT + '/versioned/shallower/base/'
+                        });
+
+                        app.get("/r/:version/fs-shallow", resolved, dynamicFiletree({
+                            realPath: "/base/",
+                            rootPath: "/base/"
+                        }), combo.respond);
+
+                        app.get("/r/:version/ln-shallow", resolved, dynamicSymlinks({
+                            rootPath: "/base/"
+                        }), combo.respond);
                     });
 
-                    app.get("/c/:version/fs-shallow", combined, function (req, res, next) {
-                        var rootPath = res.locals.rootPath;
-                        rootPath.should.equal(path.join(COMPLEX_ROOT, '/base/'));
+                    it("should resolve files from realpath in filesystem", assertResponds({
+                        path: "/r/cafebabe/fs-shallow?js/a.js&js/b.js"
+                    }));
 
-                        var relativePath = res.locals.relativePaths[0];
-                        relativePath.should.equal('js/a.js');
-
-                        fs.realpath(path.join(rootPath, relativePath), function (err, resolved) {
-                            assert.ifError(err);
-                            resolved.should.equal(path.join(COMPLEX_ROOT, '/base/', relativePath));
-                            next();
-                        });
-                    }, combo.respond);
-
-                    app.get("/c/:version/ln-shallow", combined, function (req, res, next) {
-                        var rootPath = res.locals.rootPath;
-                        rootPath.should.equal(path.join(COMPLEX_ROOT, '/base/'));
-
-                        var relativePath = res.locals.relativePaths[0];
-                        relativePath.should.equal('css/urls/simple.css');
-
-                        // console.error(res.body);
-                        res.body.should.equal(TEMPLATE_SIMPLE.replace(/__ROOT__/g, '/base/'));
-
-                        next();
-                    }, combo.respond);
+                    it("should rewrite url() through symlink", assertResponds({
+                        path: "/r/cafebabe/ln-shallow?css/urls/simple.css"
+                    }));
                 });
 
-                it("should resolve files from realpath in filesystem", assertResponds({
-                    path: "/c/cafebabe/fs-shallow?js/a.js&js/b.js"
-                }));
+                describe("when resolveSymlinks is false", function () {
+                    before(function () {
+                        var symlinkd = combo.combine({
+                            rewriteImports: true,
+                            resolveSymlinks: false,
+                            webRoot : COMPLEX_ROOT,
+                            rootPath: COMPLEX_ROOT + '/versioned/shallower/base/'
+                        });
 
-                it("should rewrite url() through symlink", assertResponds({
-                    path: "/c/cafebabe/ln-shallow?css/urls/simple.css"
-                }));
+                        app.get("/s/:version/fs-shallow", symlinkd, dynamicFiletree({
+                            realPath: "/base/",
+                            rootPath: "/versioned/shallower/base/"
+                        }), combo.respond);
+
+                        app.get("/s/:version/ln-shallow", symlinkd, dynamicSymlinks({
+                            rootPath: "/versioned/shallower/base/"
+                        }), combo.respond);
+                    });
+
+                    it("should resolve files from symlink in filesystem", assertResponds({
+                        path: "/s/cafebabe/fs-shallow?js/a.js&js/b.js"
+                    }));
+
+                    it("should rewrite url() using symlink", assertResponds({
+                        path: "/s/cafebabe/ln-shallow?css/urls/simple.css"
+                    }));
+                });
             });
 
             describe("and rootPath symlinked deeper", function () {
-                before(function () {
-                    var combined = combo.combine({
-                        rewriteImports: true,
-                        webRoot : COMPLEX_ROOT,
-                        rootPath: COMPLEX_ROOT + '/deep-link/'
+                describe("when resolveSymlinks is true", function () {
+                    before(function () {
+                        var resolved = combo.combine({
+                            rewriteImports: true,
+                            webRoot : COMPLEX_ROOT,
+                            rootPath: COMPLEX_ROOT + '/deep-link/'
+                        });
+
+                        app.get("/r/:version/fs-deeper", resolved, dynamicFiletree({
+                            realPath: "/versioned/deeper/base/",
+                            rootPath: "/versioned/deeper/base/"
+                        }), combo.respond);
+
+                        app.get("/r/:version/ln-deeper", resolved, dynamicSymlinks({
+                            rootPath: "/versioned/deeper/base/"
+                        }), combo.respond);
                     });
 
-                    app.get("/c/:version/fs-deeper", combined, function (req, res, next) {
-                        var rootPath = res.locals.rootPath;
-                        rootPath.should.equal(path.join(COMPLEX_ROOT, '/versioned/deeper/base/'));
+                    it("should read rootPath from filesystem directly", assertResponds({
+                        path: "/r/cafebabe/fs-deeper?js/a.js&js/b.js"
+                    }));
 
-                        var relativePath = res.locals.relativePaths[0];
-                        relativePath.should.equal('js/a.js');
-
-                        next();
-                    }, combo.respond);
-
-                    app.get("/c/:version/ln-deeper", combined, function (req, res, next) {
-                        var rootPath = res.locals.rootPath;
-                        rootPath.should.equal(path.join(COMPLEX_ROOT, '/versioned/deeper/base/'));
-
-                        var relativePath = res.locals.relativePaths[0];
-                        relativePath.should.equal('css/urls/simple.css');
-
-                        // console.error(res.body);
-                        var expected = TEMPLATE_SIMPLE
-                                        .replace(/__ROOT__/g, '/versioned/deeper/base/');
-                        res.body.should.equal(expected);
-
-                        next();
-                    }, combo.respond);
+                    it("should *still* rewrite url() through symlink", assertResponds({
+                        path: "/r/cafebabe/ln-deeper?css/urls/simple.css"
+                    }));
                 });
 
-                it("should read rootPath from filesystem directly", assertResponds({
-                    path: "/c/cafebabe/fs-deeper?js/a.js&js/b.js"
-                }));
+                describe("when resolveSymlinks is false", function () {
+                    before(function () {
+                        var symlinkd = combo.combine({
+                            rewriteImports: true,
+                            resolveSymlinks: false,
+                            webRoot : COMPLEX_ROOT,
+                            rootPath: COMPLEX_ROOT + '/deep-link/'
+                        });
 
-                it("should *still* rewrite url() through symlink", assertResponds({
-                    path: "/c/cafebabe/ln-deeper?css/urls/simple.css"
-                }));
+                        app.get("/s/:version/fs-deeper", symlinkd, dynamicFiletree({
+                            realPath: "/versioned/deeper/base/",
+                            rootPath: "/deep-link/"
+                        }), combo.respond);
+
+                        app.get("/s/:version/ln-deeper", symlinkd, dynamicSymlinks({
+                            rootPath: "/deep-link/"
+                        }), combo.respond);
+                    });
+
+                    it("should read rootPath from symlink in filesystem", assertResponds({
+                        path: "/s/cafebabe/fs-deeper?js/a.js&js/b.js"
+                    }));
+
+                    it("should *still* rewrite url() using symlink", assertResponds({
+                        path: "/s/cafebabe/ln-deeper?css/urls/simple.css"
+                    }));
+                });
             });
         });
     });
